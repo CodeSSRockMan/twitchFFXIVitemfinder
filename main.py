@@ -2,19 +2,32 @@ import asyncio
 import json
 import os
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Query
 from twitchio.ext import commands
-from src.db_utils import handle_isearch_command
+from src import item_repository
 
-# Placeholder for database path
-DATABASE_PATH = "src/data.json"  # Change to your DB if needed
-
-app = FastAPI()
+app = FastAPI(
+    title="FFXIV Item Finder API",
+    description="Item and gathering-location data built from the ffxiv-datamining submodule.",
+    version="1.0.0",
+)
 
 @app.get("/items/{item_id}")
 async def get_item(item_id: int):
-    # Placeholder: Replace with actual DB lookup
-    return {"item": item_id, "info": "Item info from DB would go here."}
+    """Full record for one item, including every known gathering node."""
+    item = item_repository.get_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+    return {"id": item_id, **item}
+
+@app.get("/items")
+async def search_items(
+    q: str = Query(..., min_length=1, description="Case-insensitive item name query"),
+    limit: int = Query(20, ge=1, le=200),
+):
+    """Search items by name. Exact matches rank first."""
+    results = item_repository.search_items(q, limit=limit)
+    return {"query": q, "count": len(results), "results": results}
 
 def get_secrets():
     try:
@@ -57,10 +70,25 @@ class Bot(commands.Bot):
     @commands.command(name="isearch")
     async def isearch(self, ctx: commands.Context, *, item_name: str = None):
         if not item_name:
-            await ctx.send("Debes especificar el nombre del item. Ejemplo: !isearch Healing Potion")
+            await ctx.send("Debes especificar el nombre del item. Ejemplo: !isearch Laurel")
             return
-        response = handle_isearch_command(item_name)
-        await ctx.send(response)
+            try:
+                matches = item_repository.find_items_by_name(item_name)
+            except item_repository.DatasetNotFoundError as exc:
+                await ctx.send(f"[Error] {exc}")
+                return
+
+            if not matches:
+                await ctx.send(f"[Not found] No item named '{item_name}' was found.")
+                return
+            if len(matches) > 1:
+                names = ", ".join(m["name"] for m in matches[:5])
+                await ctx.send(f"[Ambiguous] '{item_name}' matched: {names}. Try the item id instead.")
+                return
+
+            match = matches[0]
+            item = item_repository.get_item(match["id"])
+            await ctx.send(item_repository.format_chat_reply(item["name"], item))
 
 async def main():
     config = uvicorn.Config(app, host="0.0.0.0", port=8000, loop="asyncio", lifespan="off")

@@ -2,6 +2,8 @@
 
 This document describes the JSON schema and folder structure for the Twitch Bot project, which stores expansions, cities, locations, NPCs, items, crafting recipes, and item sourcing information for Final Fantasy XIV.
 
+See [FFXIV Sheets Pipeline](docs/FFXIV_Pipeline.md) for the CSV/EXD importer, normalization, and submodule integration.
+
 ---
 
 ## Folder Structure

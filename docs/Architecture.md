@@ -2,6 +2,9 @@
 
 This document outlines different architectures for building a Twitch bot that interacts with a local database to handle commands like item lookups from a game (e.g., FFXIV).
 
+> **Note:** The project implements **option 3 (Hybrid)** — the bot and the HTTP
+> API run in one process. Options 1 and 2 below are kept for reference.
+
 ---
 
 ## 1. Single-Process Architecture (Bot + DB)
@@ -53,14 +56,23 @@ Run both the Twitch bot and the HTTP API in one Python process using asyncio.
 
 ```python
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import asyncio
+
+from src import item_repository
 
 app = FastAPI()
 
 @app.get("/items/{item_id}")
 async def get_item(item_id: int):
-    return {"item": item_id}
+    item = item_repository.get_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Item {item_id} not found")
+    return {"id": item_id, **item}
+
+@app.get("/items")
+async def search_items(q: str, limit: int = 20):
+    return {"query": q, "results": item_repository.search_items(q, limit=limit)}
 
 async def main():
     config = uvicorn.Config(app, host="0.0.0.0", port=8000, loop="asyncio", lifespan="off")
@@ -71,3 +83,10 @@ async def main():
     await bot.start()
 
 asyncio.run(main())
+```
+
+**This is the architecture the project actually implements** (see [main.py](../main.py)).
+The bot and the HTTP API share one process and one in-process read layer,
+`src/item_repository.py`, which loads the normalized dataset once per process.
+See [FFXIV Sheets Pipeline](FFXIV_Pipeline.md) for the available endpoints and
+for the pipeline that produces the dataset.

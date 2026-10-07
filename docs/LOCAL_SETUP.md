@@ -84,3 +84,10 @@ pipeline {
 - Jenkins: http://localhost:8080
 - App (if exposed): http://localhost:5000
 - Cloud endpoints: See Terraform outputs after apply.
+
+## FFXIV Data Pipeline
+
+This repository now includes a documented pipeline for ingesting FFXIV CSV/EXD datamining outputs, normalizing them, building relationship indexes, and producing an optimized cache/database for application queries.
+
+See the full pipeline documentation: [FFXIV Sheets Pipeline](docs/FFXIV_Pipeline.md)
+

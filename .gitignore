@@ -73,6 +73,11 @@ secrets.json
 # SQLite DB
 *.db
 
+# Generated FFXIV dataset cache
+# Rebuilt from the vendor/ffxiv-datamining submodule with:
+#   python scripts/import_datamining.py
+data/
+
 # Sensitive files
 secrets.json
 *.pem
