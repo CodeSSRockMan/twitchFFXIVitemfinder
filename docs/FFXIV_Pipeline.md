@@ -65,16 +65,30 @@ against the 7.25 CSVs: this single rule accounts for every exported index.
 
 Coordinates come in two spaces, and only one of them is usable in game.
 
-`ExportedGatheringPoint.X/Y` are **map-space units** on a 2048-unit map whose
-origin is at the centre, so they span roughly `-1024..1024` (measured across all
+`ExportedGatheringPoint.X/Y` are **world coordinates** on the 2048x2048 map
+texture the game renders, so they run roughly `-1024..1024` (measured across all
 1077 exported rows: X `-872.9..970.3`, Y `-948.4..962.9`). The sign is meaningful
 there — a negative X is simply the western half of the zone — but these values
 must never be shown as a coordinate.
 
-The in-game map grid is **1..41** across the same map. Each node therefore also
-carries `map_x` / `map_y`, converted from the raw values using the map's
-`SizeFactor`. Across all 2340 positioned nodes the result is `4.0..40.0` on both
-axes with **zero negatives**, which is what the game shows.
+The in-game grid is **1..41**. The conversion is the official one from
+`vendor/ffxiv-datamining/docs/MapCoordinates.md`, composed from its two
+documented steps:
+
+```
+pixel = (world + offset) / 100 * sizeFactor + 1024
+game  = pixel / sizeFactor * 2 + 1          # truncated to 1 decimal
+```
+
+`offset` is the map's `OffsetX`/`OffsetY` and is **not** always zero — 628 of 1268
+maps carry a non-zero offset, so it must be applied per map. Each node therefore
+carries `map_x` / `map_y` alongside the raw `x` / `y`. Across all 2340 positioned
+nodes the result is `4.0..40.9` on both axes, with **zero negatives and zero
+values outside 1..41**, which is what the game shows.
+
+`tests/test_import_datamining.py` re-derives every node's coordinates from
+`Map.csv` using the documented formula and asserts they match, so the conversion
+cannot silently drift.
 
 `coords_source` is `ExportedGatheringPoint` when coordinates exist, and is
 `null` otherwise. Gathering points that were never exported have `x`/`y` and

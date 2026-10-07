@@ -138,3 +138,60 @@ def test_map_grid_is_monotonic_with_raw(indexes):
     laurel = items_normalized[4839]["nodes"]
     ordered = sorted((n for n in laurel if n["map_x"] is not None), key=lambda n: n["x"])
     assert [n["map_x"] for n in ordered] == sorted(n["map_x"] for n in ordered)
+
+
+def test_map_grid_matches_documented_formula(indexes):
+    """Conversion must match vendor/ffxiv-datamining/docs/MapCoordinates.md.
+
+    pixel = (world + offset) / 100 * sizeFactor + 1024
+    game  = pixel / sizeFactor * 2 + 1        (truncated to 1 decimal)
+    """
+    import csv
+
+    src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "vendor", "ffxiv-datamining", "csv", "en"))
+    meta = {}
+    with open(os.path.join(src, "Map.csv"), encoding="utf-8-sig", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if row.get("Id"):
+                meta[row["Id"]] = (
+                    float(row.get("OffsetX") or 0),
+                    float(row.get("OffsetY") or 0),
+                    float(row.get("SizeFactor") or 100),
+                )
+
+    def expected(raw, offset, size_factor):
+        pixel = (raw + offset) / 100.0 * size_factor + 1024.0
+        return round(pixel / size_factor * 2.0 + 1.0, 1)
+
+    items_normalized = indexes[3]
+    checked = 0
+    for item in items_normalized.values():
+        for n in item["nodes"]:
+            if n["map_x"] is None or not n["map"]:
+                continue
+            off_x, off_y, sf = meta.get(n["map"], (0.0, 0.0, 100.0))
+            assert n["map_x"] == expected(n["x"], off_x, sf), (
+                f"{item['name']} map {n['map']}: map_x {n['map_x']} != {expected(n['x'], off_x, sf)}"
+            )
+            assert n["map_y"] == expected(n["y"], off_y, sf), (
+                f"{item['name']} map {n['map']}: map_y {n['map_y']} != {expected(n['y'], off_y, sf)}"
+            )
+            checked += 1
+    assert checked > 1000, f"expected to check many nodes, only checked {checked}"
+
+
+def test_map_offset_is_applied(indexes):
+    """Maps with a non-zero OffsetX/OffsetY must not be treated as offset zero."""
+    import csv
+
+    src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "vendor", "ffxiv-datamining", "csv", "en"))
+    offset_maps = set()
+    with open(os.path.join(src, "Map.csv"), encoding="utf-8-sig", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if row.get("Id") and (float(row.get("OffsetX") or 0) or float(row.get("OffsetY") or 0)):
+                offset_maps.add(row["Id"])
+    assert offset_maps, "expected some maps with a non-zero offset"
+
+    items_normalized = indexes[3]
+    used = {n["map"] for item in items_normalized.values() for n in item["nodes"] if n["map"]}
+    assert used & offset_maps, "no node landed on a map that has a non-zero offset"

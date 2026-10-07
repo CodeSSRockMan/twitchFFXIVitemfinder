@@ -200,36 +200,40 @@ def build_indexes(src_dir: str):
 
     # 8.1) Map-space (grid) coordinates.
     #
-    # `ExportedGatheringPoint.X/Y` are *map-space* units on a 2048-unit map whose
-    # origin sits at the centre, so the values run roughly -1024..1024 and the sign
-    # is meaningful. Verified across all 1077 exported rows (X: -872.9..970.3,
-    # Y: -948.4..962.9).
+    # `ExportedGatheringPoint.X/Y` are *world* coordinates on the same 2048-unit
+    # map texture the game renders, so they run roughly -1024..1024 and the sign is
+    # meaningful: a negative X is simply the western half of the zone. Measured
+    # across all 1077 exported rows (X: -872.9..970.3, Y: -948.4..962.9).
     #
-    # The in-game map grid is 1..41 across the same map, with 1 at the far edge and
-    # 21.5 at the centre, which is why raw values must never be shown directly:
-    # a raw X of -611 is a perfectly good position on the west side of the map.
-    # MAP_SPAN_UNITS is the full width in map-space units and MAP_GRID_MIN/MAX are
-    # the grid values that span it.
-    MAP_SPAN_UNITS = 2048.0
-    MAP_GRID_MIN = 1.0
-    MAP_GRID_MAX = 41.0
+    # These must never be surfaced as a coordinate. The conversion below is the
+    # official one from `vendor/ffxiv-datamining/docs/MapCoordinates.md`, composed
+    # from its two documented steps:
+    #
+    #   GetPixelCoordinates:  pixel = (world + mapOffset) / 100 * sizeFactor + 1024
+    #   GetGameMapCoordinates: game  = pixel / sizeFactor * 2 + 1
+    #
+    # `mapOffset` is the map's OffsetX/OffsetY and is NOT always zero: 628 of 1268
+    # maps carry a non-zero offset. The in-game grid is 1..41.
+    def to_map_grid(raw: float, map_offset: float, size_factor: float) -> float:
+        pixel = (raw + map_offset) / 100.0 * size_factor + 1024.0
+        # The game truncates to one decimal place.
+        return round(pixel / size_factor * 2.0 + 1.0, 1)
 
-    def to_map_grid(raw: float, size_factor: float = 100.0) -> float:
-        """Convert a map-space value to the 1..41 in-game map grid."""
-        grid_span = MAP_GRID_MAX - MAP_GRID_MIN
-        scale = grid_span / MAP_SPAN_UNITS * (100.0 / max(size_factor, 1.0))
-        return round(MAP_GRID_MIN + (raw + MAP_SPAN_UNITS / 2.0) * scale, 2)
-
-    # 8.2) Per-map SizeFactor for the grids above.
+    # 8.2) Per-map offsets and size factors.
+    map_offsets: Dict[str, Tuple[float, float]] = {}
     map_size_factors: Dict[str, float] = {}
     for row in _read_csv(map_path):
         mid = row.get("Id", "") or ""
+        if not mid:
+            continue
         try:
-            sf = float(row.get("SizeFactor", "100") or 100)
+            map_offsets[mid] = (float(row.get("OffsetX", 0) or 0), float(row.get("OffsetY", 0) or 0))
         except Exception:
-            sf = 100.0
-        if mid:
-            map_size_factors[mid] = sf
+            map_offsets[mid] = (0.0, 0.0)
+        try:
+            map_size_factors[mid] = float(row.get("SizeFactor", 100) or 100)
+        except Exception:
+            map_size_factors[mid] = 100.0
 
     # 9) Build per-item normalized JSON
     items_normalized: Dict[int, Dict] = {}
@@ -263,8 +267,9 @@ def build_indexes(src_dir: str):
                     exported_index = exported_idx
                     coords_source = "ExportedGatheringPoint" if coord else None
                     size_factor = map_size_factors.get(map_id, 100.0)
-                    map_x = to_map_grid(x, size_factor) if x is not None else None
-                    map_y = to_map_grid(y, size_factor) if y is not None else None
+                    off_x, off_y = map_offsets.get(map_id, (0.0, 0.0))
+                    map_x = to_map_grid(x, off_x, size_factor) if x is not None else None
+                    map_y = to_map_grid(y, off_y, size_factor) if y is not None else None
                     nodes.append({
                         "gpb_id": gpb,
                         "gathering_point_id": gp_id,
