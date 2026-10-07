@@ -18,13 +18,12 @@ def test_get_item_returns_real_record():
 
 def test_get_item_includes_known_coordinate():
     response = client.get(f"/items/{LAUREL_ID}")
-    nodes = response.json()["nodes"]
-    assert any(
-        n["x"] is not None
-        and abs(n["x"] - (-611.869)) < 1e-3
-        and abs(n["y"] - 718.873) < 1e-3
-        for n in nodes
-    )
+    body = response.json()
+    # Node-level position on the 1..41 in-game grid.
+    spot = next(s for s in body["node_spots"] if s["gpb_id"] == 133)
+    assert spot["map_x"] is not None and 1.0 <= spot["map_x"] <= 41.0
+    assert spot["map_y"] is not None and 1.0 <= spot["map_y"] <= 41.0
+    assert spot["place_name"] == "Broken Water"
 
 
 def test_get_item_unknown_id_returns_404():

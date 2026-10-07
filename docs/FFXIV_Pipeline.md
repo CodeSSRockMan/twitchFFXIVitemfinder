@@ -98,14 +98,12 @@ values outside 1..41**, which is what the game shows.
 cannot silently drift.
 
 `coords_source` is `ExportedGatheringPoint` when coordinates exist, and is
-`null` otherwise. Gathering points that were never exported have `x`/`y` and
+`null` otherwise. Gathering points whose node was never exported have `x`/`y` and
 `map_x`/`map_y` all `null`, and the summary reports `has_coords = false`. Only a
-subset of gathering points is exported upstream (1077 of 5857 rows in 7.25, 18%),
-so most items are located but not coordinate-pinned. Coverage varies sharply by
-zone: Eastern Thanalan (territory 145) has 26 of 32 exported (81%), while some
-areas have none. Each node also carries `radius`, the node's width in grid units
-(from `ExportedGatheringPoint.Radius`, scaled the same way as the coordinates),
-which says how far a player may be from the centre and still be at that node.
+subset of nodes is exported upstream (1077 of 1425 `GatheringPointBase` rows in
+7.25), so many items are located but not coordinate-pinned. Coverage varies by
+zone: Eastern Thanalan has 26 of 32 exported (81%) against 18% overall, so "no
+coordinates" is far more likely in some areas than others.
 
 External id schemes
 
@@ -121,33 +119,38 @@ be looked up here unchanged:
 Node JSON can be fetched directly from
 `https://www.garlandtools.org/db/doc/node/<LANG>/2/<gpb_id>.json` (version 2).
 
-Node coordinates are not gathering-point coordinates
+Node coordinates are per node, not per gathering point
 
-A `GatheringPointBase` is a *node*: one mining or harvesting spot that may map to
-several gathering points. garlandtools publishes a single `coords` pair and a
-`radius` for the node, and that pair is a representative point for the node as a
-whole, not the position of any one gathering point.
+`ExportedGatheringPoint."#"` is the **`GatheringPointBase` id**. The table has one
+row per gathering *node*, not per gathering point: verified against the 7.25 CSVs
+where every one of its 1077 ids is a valid `GatheringPointBase` id, and each also
+matches the `Radius` published for that node by the external databases (20 of 20
+sampled nodes).
 
-Two Drybone nodes show why the distinction matters:
+A node may cover several `GatheringPoint`s, so its coordinate is the node's
+representative location. Treating the index as `GatheringPoint."#" - 30000`
+instead resolves to a *different, neighbouring* node and yields plausible but
+wrong positions, which is what an earlier version of this pipeline did.
 
-| node | level | garlandtools coords |
-|------|-------|---------------------|
-| 160 (Alumen) | 20 | 18.08, 20.54 |
-| 185 (Raw Amber) | 45 | 12.65, 19.10 |
+Coordinates are stored on every node and also grouped per node in `node_spots`,
+one entry per `GatheringPointBase`:
 
-They sit 5.4 units apart and, in this dataset, have gathering points only 1.2
-units apart, so both descriptions refer to the same neighbourhood. Neither
-node-level coordinate equals any single gathering point:
+| Field | Meaning |
+|-------|---------|
+| `x` / `y` | raw world coordinates, never surfaced as a playable position |
+| `map_x` / `map_y` | the node's position on the 1..41 in-game grid |
+| `radius` | node width in grid units, from `ExportedGatheringPoint.Radius` |
 
-| node | garlandtools | nearest gathering point | distance |
-|------|--------------|-------------------------|----------|
-| 47 (Silver Ore) | 16.05, 19.50 | 16.13, 20.43 | 0.94 |
-| 160 (Alumen) | 18.08, 20.54 | 14.69, 24.37 | 5.11 |
-| 185 | 12.65, 19.10 | 27.15, 16.29 | 14.77 |
+Validated against node coordinates captured from the external databases (kept as
+test fixtures only, never fetched at runtime). Across 20 nodes both axes agree
+within **0.014 grid units**, which is the rounding floor of the two-decimal
+reference values:
 
-So `map_x`/`map_y` here are per-gathering-point positions and are not expected to
-match a node-level `coords` value. When comparing against an external database,
-compare like with like: node-level to node-level, or point to point.
+```
+node 47  (Silver Ore)  mine 16.04, 19.48   reference 16.05, 19.50
+node 160 (Alumen)      mine 18.07, 20.52   reference 18.08, 20.54
+node 185               mine 12.64, 19.09   reference 12.65, 19.10
+```
 
 A separate table, `MapMarker.csv`, holds coordinates in a third space
 (`0..2000`, origin at a corner, no negatives). It is not a node-coordinates

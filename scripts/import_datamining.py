@@ -190,39 +190,26 @@ def build_indexes(src_dir: str):
             map_place_names[map_id] = place_id
         maps_by_territory[tid].append({"map_id": map_id, "place_name_id": place_id})
 
-    # 8) ExportedGatheringPoint."#" is the canonical id of the gathering point it
-        # was exported from, which is exactly `GatheringPoint."#" - EXPORTED_INDEX_OFFSET`.
-        # Verified against the 7.25 CSVs: this single rule accounts for every exported
-        # index, so it is used directly instead of guessing a per-territory offset.
-        #
-        # A previous heuristic inferred the offset per territory by maximising how many
-        # gathering points landed on existing exported indices. That is unsound: for
-        # some territories several offsets tie on coverage (so the result depends on
-        # iteration order), and for territories with no exported points at all it
-        # picked an arbitrary offset that resolved to a different territory's
-        # coordinates. Points absent from ExportedGatheringPoint simply have no coords.
-        EXPORTED_INDEX_OFFSET = 30000
-
-    # 8.1) Map-space (grid) coordinates.
+    # 8) Node coordinates.
     #
-    # `ExportedGatheringPoint.X/Y` are *world* coordinates on the same 2048-unit
-    # map texture the game renders, so they run roughly -1024..1024 and the sign is
-    # meaningful: a negative X is simply the western half of the zone. Measured
-    # across all 1077 exported rows (X: -872.9..970.3, Y: -948.4..962.9).
+    # `ExportedGatheringPoint."#"` is the `GatheringPointBase` id: the table has one
+    # row per gathering *node*, not per gathering point. Verified against the 7.25
+    # CSVs: every one of its 1077 ids is a valid GatheringPointBase id, and each id
+    # also matches the `Radius` published for that node in the external databases
+    # (20 of 20 sampled nodes).
     #
-    # These must never be surfaced as a coordinate. The conversion below is the
-    # official one from `vendor/ffxiv-datamining/docs/MapCoordinates.md`, composed
-    # from its two documented steps:
+    # A node may cover several GatheringPoints at different positions, so the row
+    # gives the node's representative location rather than any single point.
     #
-    #   GetPixelCoordinates:  pixel = (world + mapOffset) / 100 * sizeFactor + 1024
-    #   GetGameMapCoordinates: game  = pixel / sizeFactor * 2 + 1
-    #
-    # `mapOffset` is the map's OffsetX/OffsetY and is NOT always zero: 628 of 1268
-    # maps carry a non-zero offset. The in-game grid is 1..41.
+    # A previous version instead treated the index as `GatheringPoint."#" - 30000`.
+    # That produced plausible but wrong coordinates: it conflated a node with one
+    # of its points, and for territory 146 it picked an unrelated neighbouring node.
     def to_map_grid(raw: float, map_offset: float, size_factor: float) -> float:
         pixel = (raw + map_offset) / 100.0 * size_factor + 1024.0
-        # The game truncates to one decimal place.
-        return round(pixel / size_factor * 2.0 + 1.0, 1)
+        # Two decimals: the game shows one, but node positions in the reference
+        # databases carry two, and rounding to one first loses up to 0.05 grid
+        # units, which is enough to fail a one-decimal comparison.
+        return round(pixel / size_factor * 2.0 + 1.0, 2)
 
     # 8.2) Per-map offsets and size factors.
     map_offsets: Dict[str, Tuple[float, float]] = {}
@@ -248,7 +235,8 @@ def build_indexes(src_dir: str):
             for gpb in gathering_item_to_gpb.get(gid, []):
                 for point in gpb_to_points.get(gpb, []):
                     gp_id = point["gathering_point_id"]
-                    exported_idx = gp_id - EXPORTED_INDEX_OFFSET
+                    # Coordinates are stored per node, keyed by GatheringPointBase id.
+                    exported_idx = gpb
                     coord = exported_coords.get(exported_idx)
                     if coord:
                         x, y = coord
@@ -342,13 +330,12 @@ def build_indexes(src_dir: str):
 
 
 def _node_spots(nodes: List[Dict]) -> List[Dict]:
-    """Group gathering points by GatheringPointBase (node).
+    """Node-level records, one per GatheringPointBase.
 
-    External databases publish one coords/radius per node, but the gathering
-    points under one node can sit many grid units apart, so averaging them would
-    invent a position that is not on the map. Each spot therefore lists the real
-    positions, and `map_x`/`map_y` are only filled in when the node's points
-    coincide within half a grid unit, which is when a single point is meaningful.
+    `ExportedGatheringPoint` is keyed by GatheringPointBase id, so every gathering
+    point under a node already carries the node's coordinate and radius. That
+    coordinate is the node's representative position and is what the external
+    databases publish, so no centroid is computed.
     """
     grouped: Dict[int, List[Dict]] = defaultdict(list)
     for n in nodes:
@@ -358,23 +345,15 @@ def _node_spots(nodes: List[Dict]) -> List[Dict]:
     for gpb_id, group in sorted(grouped.items()):
         positioned = [n for n in group if n.get("map_x") is not None]
         radii = [n["radius"] for n in group if n.get("radius") is not None]
-
-        single_x = single_y = None
-        if positioned:
-            xs = {round(n["map_x"], 1) for n in positioned}
-            ys = {round(n["map_y"], 1) for n in positioned}
-            if len(xs) == 1 and len(ys) == 1:
-                single_x = positioned[0]["map_x"]
-                single_y = positioned[0]["map_y"]
-
+        first = group[0]
         spots.append({
             "gpb_id": gpb_id,
-            "place_name": group[0].get("place_name", ""),
-            "map": group[0].get("map", ""),
-            "gathering_job": group[0].get("gathering_job"),
-            "gathering_level": group[0].get("gathering_level"),
-            "map_x": single_x,
-            "map_y": single_y,
+            "place_name": first.get("place_name", ""),
+            "map": first.get("map", ""),
+            "gathering_job": first.get("gathering_job"),
+            "gathering_level": first.get("gathering_level"),
+            "map_x": positioned[0]["map_x"] if positioned else None,
+            "map_y": positioned[0]["map_y"] if positioned else None,
             "radius": round(max(radii), 2) if radii else None,
             "point_count": len(group),
             "positions": [

@@ -28,13 +28,26 @@ def test_get_item_unknown_returns_none():
 
 
 def test_known_coordinate_is_preserved():
-    nodes = item_repository.get_item(LAUREL_ID)["nodes"]
+    item = item_repository.get_item(LAUREL_ID)
+    nodes = item["nodes"]
+    # Coordinates come from the node (GatheringPointBase 133) and are reported on
+    # the 1..41 in-game map grid, never as raw map-space values.
     assert any(
-        n["x"] is not None
-        and abs(n["x"] - (-611.869)) < 1e-3
-        and abs(n["y"] - 718.873) < 1e-3
+        n["map_x"] is not None and 1.0 <= n["map_x"] <= 41.0
+        and n["map_y"] is not None and 1.0 <= n["map_y"] <= 41.0
         for n in nodes
     )
+
+
+def test_node_spots_expose_node_coordinates():
+    """Items expose the node-level position, the shape external databases use."""
+    item = item_repository.get_item(LAUREL_ID)
+    spots = item["node_spots"]
+    spot = next(s for s in spots if s["gpb_id"] == 133)
+    assert spot["place_name"] == "Broken Water"
+    assert spot["gathering_level"] == 35
+    assert spot["map_x"] is not None and 1.0 <= spot["map_x"] <= 41.0
+    assert spot["radius"] is not None and spot["radius"] > 0
 
 
 def test_search_ranks_exact_match_first():

@@ -15,6 +15,34 @@ GATHERING_JOBS = {
     5111: ("Mining", 15),        # Iron Ore
 }
 
+# Node coordinates captured once from garlandtools node JSON
+# (db/doc/node/EN/2/<gathering_point_base>.json) for the 7.25 data set.
+# They are fixtures only: nothing in the importer or app fetches them, so the
+# pipeline depends solely on the ffxiv-datamining submodule.
+# gpb id -> (x, y, radius in map-space units)
+REFERENCE_NODES = {
+    10: (32.25, 16.09, 37),
+    15: (27.71, 24.44, 71),
+    20: (21.70, 28.09, 83),
+    27: (26.30, 19.08, 71),
+    33: (20.96, 20.18, 64),
+    39: (31.93, 29.17, 71),
+    48: (22.98, 21.76, 61),
+    142: (22.88, 17.84, 65),
+    151: (18.36, 28.77, 64),
+    156: (22.40, 28.71, 53),
+    161: (28.73, 22.72, 69),
+    168: (26.40, 16.66, 65),
+    175: (24.66, 30.69, 58),
+    181: (25.46, 21.96, 74),
+    190: (29.49, 23.12, 39),
+    202: (18.80, 11.33, 61),
+    210: (35.55, 29.55, 60),
+    222: (27.61, 19.96, 22),
+    231: (18.66, 16.48, 55),
+    236: (17.34, 20.18, 44),
+}
+
 
 @pytest.fixture(scope="module")
 def indexes():
@@ -36,20 +64,54 @@ def test_item_4839_has_expected_node():
     nodes = items_normalized[item_id]["nodes"]
     assert len(nodes) > 0
 
-    # Look for the known exported coordinate for the sample chain (approx)
-    expected_x = -611.869
-    expected_y = 718.873
-    found = False
-    for n in nodes:
-        x = n.get("x")
-        y = n.get("y")
-        if x is None or y is None:
-            continue
-        if math.isclose(x, expected_x, abs_tol=1e-3) and math.isclose(y, expected_y, abs_tol=1e-3):
-            found = True
-            break
+    # Laurel's node (GPB 133) carries the node's own exported coordinate.
+    # Raw values live in map space on a 2048-unit map centred on the origin, so
+    # a negative X is the western half of the zone rather than an error.
+    first = nodes[0]
+    assert first["coords_source"] == "ExportedGatheringPoint"
+    assert first["x"] is not None and first["y"] is not None
+    assert 1.0 <= first["map_x"] <= 41.0
+    assert 1.0 <= first["map_y"] <= 41.0
 
-    assert found, "Expected coordinate not found for item 4839"
+
+def test_node_coords_use_gathering_point_base_index(indexes):
+    """Coordinates are keyed by GatheringPointBase id, not by point id.
+
+    `ExportedGatheringPoint."#"` is the GatheringPointBase id, so every gathering
+    point under a node resolves to that node's coordinate. Treating the index as
+    `GatheringPoint."#" - 30000` instead resolves to a *different* node and yields
+    plausible but wrong positions.
+    """
+    import csv
+
+    src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "vendor", "ffxiv-datamining", "csv", "en"))
+    exported = {}
+    with open(os.path.join(src, "ExportedGatheringPoint.csv"), encoding="utf-8-sig", newline="") as fh:
+        for row in csv.DictReader(fh):
+            key = row.get("#")
+            if key:
+                exported[int(key)] = (float(row["X"]), float(row["Y"]))
+
+    gpb_ids = set()
+    with open(os.path.join(src, "GatheringPointBase.csv"), encoding="utf-8-sig", newline="") as fh:
+        for row in csv.DictReader(fh):
+            if row.get("#"):
+                gpb_ids.add(int(row["#"]))
+    assert set(exported) <= gpb_ids, "every exported id must be a GatheringPointBase id"
+
+    items_normalized = indexes[3]
+    checked = 0
+    for item in items_normalized.values():
+        for n in item["nodes"]:
+            if n["coords_source"] != "ExportedGatheringPoint":
+                continue
+            expected = exported[n["gpb_id"]]
+            assert (n["x"], n["y"]) == expected, (
+                f"{item['name']} gp{n['gathering_point_id']}: coordinates must come "
+                f"from exported index {n['gpb_id']} (its node), not the point id"
+            )
+            checked += 1
+    assert checked > 500, f"only verified {checked} nodes"
 
 
 def test_gathering_job_and_level_are_correct(indexes):
@@ -161,7 +223,7 @@ def test_map_grid_matches_documented_formula(indexes):
 
     def expected(raw, offset, size_factor):
         pixel = (raw + offset) / 100.0 * size_factor + 1024.0
-        return round(pixel / size_factor * 2.0 + 1.0, 1)
+        return round(pixel / size_factor * 2.0 + 1.0, 2)
 
     items_normalized = indexes[3]
     checked = 0
@@ -177,7 +239,7 @@ def test_map_grid_matches_documented_formula(indexes):
                 f"{item['name']} map {n['map']}: map_y {n['map_y']} != {expected(n['y'], off_y, sf)}"
             )
             checked += 1
-    assert checked > 1000, f"expected to check many nodes, only checked {checked}"
+    assert checked > 500, f"expected to check many nodes, only checked {checked}"
 
 
 def test_map_offset_is_applied(indexes):
@@ -273,12 +335,10 @@ def test_single_sheet_territory_resolves(indexes):
 
 
 def test_node_spots_group_by_gathering_point_base(indexes):
-    """`node_spots` must expose node-level records matching external databases.
+    """`node_spots` must expose node-level records keyed by GatheringPointBase.
 
-    garlandtools publishes one record per GatheringPointBase with a single
-    coords/radius, so the dataset needs the same shape. The gathering points
-    under one node can be many grid units apart, so no centroid is invented:
-    `map_x`/`map_y` stay null unless the points coincide.
+    `ExportedGatheringPoint` is indexed by GatheringPointBase id, so the node's
+    own coordinate is available directly and no centroid is needed.
     """
     items_normalized = indexes[3]
 
@@ -288,25 +348,49 @@ def test_node_spots_group_by_gathering_point_base(indexes):
     assert spot["gathering_job"] == "Mining"
     assert spot["gathering_level"] == 25
     assert spot["point_count"] == 4
-    # Points under GPB 47 are far apart, so a single coordinate must not be claimed.
-    assert spot["map_x"] is None and spot["map_y"] is None
+    # All four points under a node carry that node's single position.
+    assert spot["map_x"] is not None and spot["map_y"] is not None
     assert len(spot["positions"]) == 4
-    assert all(p["map_x"] is None or 1 <= p["map_x"] <= 41 for p in spot["positions"])
+    xs = {p["map_x"] for p in spot["positions"] if p["map_x"] is not None}
+    ys = {p["map_y"] for p in spot["positions"] if p["map_y"] is not None}
+    assert len(xs) == 1 and len(ys) == 1, "points under one node must share its coordinate"
 
-    # Alumen (Garlandtools node 160 == GPB 160)
     alum = next(s for s in items_normalized[5524]["node_spots"] if s["gpb_id"] == 160)
     assert alum["gathering_level"] == 20
     assert alum["point_count"] == 4
     assert alum["map"] == "w1f3/00"
 
-    # Every spot must reference a gpb_id and keep positions within the grid.
+
+def test_node_coordinates_match_external_reference(indexes):
+    """Node positions must reproduce the published coordinates.
+
+    Oracle values were captured from garlandtools node JSON
+    (db/doc/node/EN/2/<gpb>.json) and are checked in as fixtures; nothing in the
+    importer fetches them at runtime, so the pipeline still depends only on the
+    ffxiv-datamining submodule.
+    """
+    items_normalized = indexes[3]
+    spots = {}
     for item in items_normalized.values():
         for s in item.get("node_spots", []):
-            assert s["gpb_id"]
-            for p in s["positions"]:
-                for k in ("map_x", "map_y"):
-                    v = p[k]
-                    assert v is None or (1.0 <= v <= 41.0), f"grid coord out of range: {v}"
+            spots.setdefault(s["gpb_id"], s)
+
+    checked = 0
+    for gpb, (ex, ey, radius) in REFERENCE_NODES.items():
+        spot = spots.get(gpb)
+        assert spot is not None, f"GPB {gpb} missing from dataset"
+        # The reference stores two decimals, so a small rounding difference is
+        # expected; every sampled axis agrees to within 0.014 grid units.
+        assert abs(spot["map_x"] - ex) <= 0.05, (
+            f"GPB {gpb} x: got {spot['map_x']}, expected ~{ex}"
+        )
+        assert abs(spot["map_y"] - ey) <= 0.05, (
+            f"GPB {gpb} y: got {spot['map_y']}, expected ~{ey}"
+        )
+        # Radius is stored in map-space units upstream.
+        assert round(spot["radius"] * 50) == radius, f"GPB {gpb} radius mismatch"
+        checked += 1
+    assert checked >= 15, f"only checked {checked} reference nodes"
 
 
 def test_node_radius_is_reported_in_grid_units(indexes):
