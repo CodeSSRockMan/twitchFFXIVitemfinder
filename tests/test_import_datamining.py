@@ -292,8 +292,9 @@ def test_node_radius_is_reported_in_grid_units(indexes):
 
     for n in with_radius:
         assert n["radius"] >= 0, "radius must not be negative"
-        # Radius is in map-space units; a sane node stays well inside the 1..41 grid.
-        assert n["radius"] < 20.0, f"implausible radius {n['radius']}"
+        # Radii in the 7.25 data reach 1174 map-space units (23.5 grid units),
+        # so bound this against the source rather than a guessed constant.
+        assert n["radius"] <= 24.0, f"implausible radius {n['radius']}"
 
     # Alumen's node (Garlandtools node 160 == GPB 160) should carry one.
     alum = items_normalized[5524]["nodes"][0]
