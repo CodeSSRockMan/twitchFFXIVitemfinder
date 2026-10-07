@@ -158,7 +158,20 @@ def format_chat_reply(item_name: str, item: Dict[str, Any]) -> str:
     if not nodes:
         return f"[Gather] {item_name} can be gathered, but no gathering data was found."
 
-    located = [n for n in nodes if n.get("map_x") is not None and n.get("map_y") is not None]
+    # Coordinates are stored per node, so every gathering point under one node
+    # repeats it. Deduplicate on the reported position rather than listing the
+    # same node once per underlying point.
+    seen = set()
+    located = []
+    for n in nodes:
+        if n.get("map_x") is None or n.get("map_y") is None:
+            continue
+        key = (n.get("gpb_id"), n["map_x"], n["map_y"])
+        if key in seen:
+            continue
+        seen.add(key)
+        located.append(n)
+
     if not located:
         return (
             f"[Gather] {item_name} was found in {len(nodes)} spot(s), "

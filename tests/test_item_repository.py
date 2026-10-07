@@ -50,6 +50,20 @@ def test_node_spots_expose_node_coordinates():
     assert spot["radius"] is not None and spot["radius"] > 0
 
 
+def test_chat_reply_does_not_repeat_a_node():
+    """A node's points share its coordinate, so it must be listed once.
+
+    Laurel's four gathering points all sit under one node, so an undeduplicated
+    reply printed the same position four times.
+    """
+    item = item_repository.get_item(LAUREL_ID)
+    reply = item_repository.format_chat_reply(item["name"], item)
+    location_lines = [ln for ln in reply.splitlines() if ln.strip().startswith("- ")]
+    assert len(location_lines) == 1, f"expected one location line, got {location_lines}"
+    assert "Broken Water" in reply
+    assert "X:" in reply
+
+
 def test_search_ranks_exact_match_first():
     results = item_repository.search_items("laurel")
     assert results
