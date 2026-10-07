@@ -133,6 +133,57 @@ def find_items_by_name(name: str, path: Optional[str] = None) -> List[Dict[str, 
     return matches
 
 
+def format_jobs_reply(item_name: str, jobs: List[Dict[str, Any]]) -> str:
+    """Build the Twitch reply for the jobs that can craft an item.
+
+    Several jobs can share a recipe (Bronze Ingot is both blacksmith and
+    armorer), so every matching job is listed.
+    """
+    if not jobs:
+        return f"[Jobs] {item_name} has no recipe, so no crafting job can make it."
+    names = [j.get("abbreviation") or j.get("name") or "?" for j in jobs]
+    return f"[Jobs] {item_name} is crafted by: {', '.join(names)}."
+
+
+def format_craft_reply(item_name: str, recipe: Dict[str, Any]) -> str:
+    """Build a compact Twitch reply listing a recipe's materials.
+
+    Twitch chat has little room, so the tree is summarised to one level with the
+    recursive materials marked. Gathering materials carry a location so the
+    player can run `!icraft` on them to get coordinates.
+    """
+    job = recipe.get("job") or {}
+    job_label = job.get("abbreviation") or job.get("name") or "?"
+    quality = recipe.get("required_quality")
+    lines = [f"[Craft] {item_name} - {job_label}"]
+    if quality:
+        lines[0] += f" - {quality} quality"
+
+    materials = recipe.get("materials") or []
+    if not materials:
+        lines.append("No materials listed.")
+        return "\n".join(lines)
+
+    recursive = [m for m in materials if m.get("source") == "craft"]
+    gatherable = [m for m in materials if m.get("source") == "gather"]
+    other = [m for m in materials if m.get("source") == "other"]
+
+    def _fmt(m: Dict[str, Any]) -> str:
+            # Plain ASCII: these strings are printed to a Windows console and sent to
+            # Twitch, where non-ASCII markers are not worth the encoding risk.
+            tag = {"gather": "[G]", "craft": "[C]", "other": "[?]"}.get(m.get("source"), "[?]")
+            return f" {tag} {m.get('name') or m.get('item_id')} x{m.get('amount', 1)}"
+
+    if gatherable:
+        lines.append(f"Gathered ({len(gatherable)}):" + "".join(_fmt(m) for m in gatherable))
+    if recursive:
+        lines.append(f"Crafted ({len(recursive)}) - run !icraft on these:" +
+                     "".join(_fmt(m) for m in recursive))
+    if other:
+        lines.append(f"Other ({len(other)}):" + "".join(_fmt(m) for m in other))
+    return "\n".join(lines)
+
+
 def format_node(node: Dict[str, Any]) -> str:
     """Render one gathering node as a single human-readable line.
 

@@ -5,6 +5,45 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from twitchio.ext import commands
 from src import item_repository
+from src import source_factory
+
+
+def _lookup(item_name: str):
+    """Resolve a chat name to a single item id.
+
+    Returns the id, or one of the sentinels below so callers can build a reply.
+    Search spans both source caches so craftable items are found.
+    """
+    try:
+        matches = item_repository.find_items_by_name(item_name)
+    except item_repository.DatasetNotFoundError:
+        matches = []
+    if not matches:
+        try:
+            matches = source_factory.find_by_name(item_name)
+        except source_factory.DatasetNotFoundError:
+            return "error"
+    if not matches:
+        return "missing"
+    if len(matches) > 1:
+        return "ambiguous"
+    return matches[0]["id"]
+
+
+def _display_name(item_id: int, fallback: str) -> str:
+    item = item_repository.load_items().get(item_id)
+    if item and item.get("name"):
+        return item["name"]
+    recipes = source_factory.load_recipes().get(item_id) or []
+    return recipes[0].get("item_name") if recipes else fallback
+
+
+def _lookup_error(item_name: str, result) -> str:
+    if result == "missing":
+        return f"[Not found] No item named '{item_name}' was found."
+    if result == "ambiguous":
+        return f"[Ambiguous] '{item_name}' matched several items. Try the item id instead."
+    return "[Error] Item data is unavailable."
 
 app = FastAPI(
     title="FFXIV Item Finder API",
@@ -72,23 +111,47 @@ class Bot(commands.Bot):
         if not item_name:
             await ctx.send("Debes especificar el nombre del item. Ejemplo: !isearch Laurel")
             return
-            try:
-                matches = item_repository.find_items_by_name(item_name)
-            except item_repository.DatasetNotFoundError as exc:
-                await ctx.send(f"[Error] {exc}")
-                return
+        match = _lookup(item_name)
+        if match is None:
+            await ctx.send(f"[Not found] No item named '{item_name}' was found.")
+            return
+        if match == "ambiguous":
+            await ctx.send(f"[Ambiguous] '{item_name}' matched several items. Try the item id instead.")
+            return
+        if match == "error":
+            await ctx.send("[Error] Item data is unavailable.")
+            return
+        item = item_repository.get_item(match)
+        await ctx.send(item_repository.format_chat_reply(item["name"], item))
 
-            if not matches:
-                await ctx.send(f"[Not found] No item named '{item_name}' was found.")
-                return
-            if len(matches) > 1:
-                names = ", ".join(m["name"] for m in matches[:5])
-                await ctx.send(f"[Ambiguous] '{item_name}' matched: {names}. Try the item id instead.")
-                return
+    @commands.command(name="icraft")
+    async def icraft(self, ctx: commands.Context, *, item_name: str = None):
+        """List the materials needed for a recipe."""
+        if not item_name:
+            await ctx.send("Debes especificar el nombre del item. Ejemplo: !icraft Bronze Hatchet")
+            return
+        match = _lookup(item_name)
+        if not isinstance(match, int):
+            await ctx.send(_lookup_error(item_name, match))
+            return
+        record = source_factory.resolve(match)
+        if not record["recipes"]:
+            await ctx.send(f"[Craft] {record['name']} has no recipe; use !isearch to find it.")
+            return
+        await ctx.send(item_repository.format_craft_reply(record["name"], record["recipes"][0]))
 
-            match = matches[0]
-            item = item_repository.get_item(match["id"])
-            await ctx.send(item_repository.format_chat_reply(item["name"], item))
+    @commands.command(name="ijob")
+    async def ijob(self, ctx: commands.Context, *, item_name: str = None):
+        """List the crafting jobs that can make an item."""
+        if not item_name:
+            await ctx.send("Debes especificar el nombre del item. Ejemplo: !ijob Bronze Ingot")
+            return
+        match = _lookup(item_name)
+        if not isinstance(match, int):
+            await ctx.send(_lookup_error(item_name, match))
+            return
+        name = _display_name(match, item_name)
+        await ctx.send(item_repository.format_jobs_reply(name, source_factory.jobs_for(match)))
 
 async def main():
     config = uvicorn.Config(app, host="0.0.0.0", port=8000, loop="asyncio", lifespan="off")

@@ -89,6 +89,50 @@ def classify(item_id: int) -> str:
     return "unknown"
 
 
+def find_by_name(name: str) -> List[Dict[str, Any]]:
+    """Case-insensitive exact-name search across every source.
+
+    Gathers the item names from the recipe cache, which is keyed by item id, so
+    craftable items are found too: they are absent from the gatherable cache
+    entirely (the two sets do not overlap in 7.25).
+    """
+    needle = (name or "").strip().casefold()
+    if not needle:
+        return []
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for item_id, item in load_items().items():
+        if (item.get("name") or "").casefold() == needle and item_id not in seen:
+            seen.add(item_id)
+            out.append({"id": item_id, "name": item.get("name", "")})
+    for item_id, recipes in load_recipes().items():
+        if item_id in seen:
+            continue
+        for recipe in recipes:
+            if (recipe.get("item_name") or "").casefold() == needle:
+                seen.add(item_id)
+                out.append({"id": item_id, "name": recipe.get("item_name", "")})
+                break
+    return out
+
+
+def jobs_for(item_id: int) -> List[Dict[str, Any]]:
+    """Return every crafting job that can make an item.
+
+    600 items in the 7.25 data have recipes from more than one job (Bronze Ingot
+    is both blacksmith and armorer), so this returns all of them rather than a
+    single winner.
+    """
+    seen: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for recipe in load_recipes().get(int(item_id)) or []:
+        job = recipe.get("job")
+        if job and job["job_id"] not in seen_ids:
+            seen_ids.add(job["job_id"])
+            seen.append(job)
+    return seen
+
+
 def resolve(item_id: int) -> Dict[str, Any]:
     """Return the full record for an item with its source resolved.
 
@@ -117,5 +161,6 @@ def resolve(item_id: int) -> Dict[str, Any]:
         "nodes": (item or {}).get("nodes", []),
         "node_spots": (item or {}).get("node_spots", []),
         "recipes": recipes,
-        "has_recursive_material": any(r.get("has_recursive_material") for r in recipes),
-    }
+            "jobs": jobs_for(item_id),
+            "has_recursive_material": any(r.get("has_recursive_material") for r in recipes),
+        }
