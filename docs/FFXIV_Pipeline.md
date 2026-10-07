@@ -80,6 +80,13 @@ pixel = (world + offset) / 100 * sizeFactor + 1024
 game  = pixel / sizeFactor * 2 + 1          # truncated to 1 decimal
 ```
 
+This is the formula introduced by
+[xivapi/ffxiv-datamining#30](https://github.com/xivapi/ffxiv-datamining/pull/30)
+("Map Coordinate Fixes", merged 2022-11-02), which replaced the older
+`41 / scale * ((val + 1024) / 2048) + 1` expression. That older form used `41` as
+a magic number where `40.96` is correct; the two agree only for a zero map
+offset, which is why offset-free variants drift on maps that have one.
+
 `offset` is the map's `OffsetX`/`OffsetY` and is **not** always zero — 628 of 1268
 maps carry a non-zero offset, so it must be applied per map. Each node therefore
 carries `map_x` / `map_y` alongside the raw `x` / `y`. Across all 2340 positioned
