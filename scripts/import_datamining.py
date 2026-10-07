@@ -62,12 +62,43 @@ def build_indexes(src_dir: str):
         if item_id:
             item_to_gathering_item[item_id].append(gid)
 
-    # 2) Gather GPB -> items/gathering items
+    # 2) Gather GPB -> items/gathering items, and GPB -> node type/level
+    #
+    # `GatheringPointBase.GatheringType` indexes `GatheringPointName.csv`, but the
+    # noun table there does NOT line up with the index: `GatheringType 2` is what
+    # Maple Log, Cedar Log and Claro Walnut Log live on (trees), while `GatheringType
+    # 3` is what Laurel lives on (vegetation). Verified against the 7.25 CSVs by
+    # sampling the items on each type, and cross-checked against known nodes.
+    #
+    # So the index is resolved to a job here, not read off GatheringPointName.
+    # GatheringTypeName is kept only as the raw index for reference.
+    GATHERING_TYPE_JOBS = {
+        0: "Mining",
+        1: "Mining",
+        2: "Logging",
+        3: "Harvesting",
+    }
+    node_nouns: Dict[int, str] = {}
+    gpn_path = os.path.join(src_dir, "GatheringPointName.csv")
+    if os.path.exists(gpn_path):
+        for row in _read_csv(gpn_path):
+            noun = (row.get("Singular") or "").strip()
+            if noun:
+                node_nouns[_safe_int(row.get("#", "0"))] = noun
+
     gathering_item_to_gpb: Dict[int, List[int]] = defaultdict(list)
+    gpb_meta: Dict[int, Dict[str, object]] = {}
     for row in _read_csv(gpb_path):
         gpb_id = _safe_int(row.get("#", "0"))
         if not gpb_id:
             continue
+        gtype = _safe_int(row.get("GatheringType", "0"))
+        gpb_meta[gpb_id] = {
+            "gathering_type": gtype,
+            "gathering_job": GATHERING_TYPE_JOBS.get(gtype),
+            "gathering_type_name": node_nouns.get(gtype),
+            "gathering_level": _safe_int(row.get("GatheringLevel", "0")) or None,
+        }
         # Item[0]..Item[7]
         for i in range(8):
             col = f"Item[{i}]"
@@ -136,17 +167,23 @@ def build_indexes(src_dir: str):
         if tid:
             territory_names[tid] = row.get("Name", "")
 
-    # 7) Map by territory (Map.csv has TerritoryType column)
-    map_by_territory: Dict[int, Dict[str, str]] = {}
+    # 7) Maps by territory.
+    #
+    # A territory can span several map sheets (204 of 614 do), so keep every
+    # candidate instead of overwriting and keeping an arbitrary one. The map
+    # a node belongs to is resolved per node from its own PlaceName, falling
+    # back to a single-map territory, then to the first candidate.
+    map_place_names: Dict[str, int] = {}
+    maps_by_territory: Dict[int, List[Dict[str, object]]] = defaultdict(list)
     for row in _read_csv(map_path):
-        try:
-            tid = _safe_int(row.get("TerritoryType", "0"))
-        except Exception:
-            tid = 0
-        if tid:
-            map_by_territory.setdefault(tid, {})["map_id"] = row.get("Id", "")
-            # PlaceName column can be useful too
-            map_by_territory[tid]["place_name_id"] = _safe_int(row.get("PlaceName", "0"))
+        tid = _safe_int(row.get("TerritoryType", "0"))
+        if not tid:
+            continue
+        map_id = row.get("Id", "") or ""
+        place_id = _safe_int(row.get("PlaceName", "0"))
+        if map_id:
+            map_place_names[map_id] = place_id
+        maps_by_territory[tid].append({"map_id": map_id, "place_name_id": place_id})
 
     # 8) ExportedGatheringPoint."#" is the canonical id of the gathering point it
         # was exported from, which is exactly `GatheringPoint."#" - EXPORTED_INDEX_OFFSET`.
@@ -177,18 +214,34 @@ def build_indexes(src_dir: str):
                         x = y = None
                     territory_id = point.get("territory")
                     place_id = point.get("place_name")
-                    map_info = map_by_territory.get(territory_id, {})
+                    # Prefer the map sheet whose PlaceName matches this node's
+                    # place; a territory may span several sheets.
+                    candidates = maps_by_territory.get(territory_id, [])
+                    map_id = ""
+                    for cand in candidates:
+                        if cand["place_name_id"] and cand["place_name_id"] == place_id:
+                            map_id = cand["map_id"]
+                            break
+                    if not map_id and len(candidates) == 1:
+                        map_id = str(candidates[0]["map_id"])
+                    if not map_id and candidates:
+                        map_id = str(candidates[0]["map_id"])
+                    meta = gpb_meta.get(gpb, {})
                     exported_index = exported_idx
                     coords_source = "ExportedGatheringPoint" if coord else None
                     nodes.append({
                         "gpb_id": gpb,
                         "gathering_point_id": gp_id,
                         "exported_index": exported_index,
+                        "gathering_type": meta.get("gathering_type"),
+                        "gathering_job": meta.get("gathering_job"),
+                        "gathering_type_name": meta.get("gathering_type_name"),
+                        "gathering_level": meta.get("gathering_level"),
                         "territory_id": territory_id,
                         "territory_name": territory_names.get(territory_id, ""),
                         "place_name_id": place_id,
                         "place_name": place_names.get(place_id, ""),
-                        "map": map_info.get("map_id", ""),
+                        "map": map_id,
                         "x": x,
                         "y": y,
                         "coords_source": coords_source,

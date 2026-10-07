@@ -134,10 +134,14 @@ def find_items_by_name(name: str, path: Optional[str] = None) -> List[Dict[str, 
 def format_node(node: Dict[str, Any]) -> str:
     """Render one gathering node as a single human-readable line."""
     place = node.get("place_name") or node.get("territory_name") or "unknown area"
+    job = node.get("gathering_job")
+    level = node.get("gathering_level")
+    if job and level:
+        place = f"{place} (Lv. {level} {job.lower()} node)"
     x, y = node.get("x"), node.get("y")
     if x is None or y is None:
-        return f"{place} (coordinates not exported)"
-    return f"{place} (X: {x}, Y: {y})"
+        return f"{place} - coordinates not exported"
+    return f"{place} - X: {x}, Y: {y}"
 
 
 def format_chat_reply(item_name: str, item: Dict[str, Any]) -> str:

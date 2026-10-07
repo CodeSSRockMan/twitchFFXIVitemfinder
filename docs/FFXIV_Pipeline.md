@@ -68,6 +68,36 @@ Gathering points that were never exported have no entry in
 `has_coords = false`. Only a subset of gathering points is exported upstream
 (1077 of 5857 rows in 7.25), so most items are located but not coordinate-pinned.
 
+Zone, node and job
+
+Each node carries four distinct location concepts, which are **not** the same thing:
+
+| Field | Meaning | Example |
+|-------|---------|---------|
+| `territory_name` / `territory_id` | zone (e.g. `x6f2`) | East Yyasulani's territory |
+| `place_name` | the node inside the zone | `Broken Water` |
+| `map` | map sheet the node sits on | `x6f2/00` (Heritage Found) |
+| `gathering_job` + `gathering_level` | which job, what level | Logging, level 100 |
+
+A zone can sit inside a named area — East Yyasulani is inside Heritage Found, and
+**the map used for coordinates comes from Heritage Found (`x6f2/00`)**, not from
+the sub-zone name. A territory may also span several map sheets (204 of 614 do),
+so `map` is resolved per node by matching the node's `PlaceName` against the
+candidate sheets rather than picking one arbitrarily.
+
+`GatheringPointBase.GatheringType` is an index, but it does **not** line up with
+the nouns in `GatheringPointName.csv`. Verified against the 7.25 CSVs by sampling
+the items on each type:
+
+| `GatheringType` | Job | Confirmed by |
+|---|---|---|
+| 0 | Mining | Iron Ore, Adamantite Ore |
+| 2 | Logging | Maple Log, Cedar Log, Claro Walnut Log (Lv.100 mature tree) |
+| 3 | Harvesting | Laurel (Lv.35 lush vegetation) |
+
+`gathering_type_name` retains the raw `GatheringPointName` noun for reference,
+but `gathering_job` is the field to trust.
+
 Submodule integration: ffxiv-datamining
 
 This pipeline uses the upstream project `https://github.com/xivapi/ffxiv-datamining` as a submodule to keep datamined tables and extraction tools in sync.
