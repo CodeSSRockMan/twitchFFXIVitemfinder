@@ -251,25 +251,49 @@ def build_indexes(src_dir: str):
                         x = y = None
                     territory_id = point.get("territory")
                     place_id = point.get("place_name")
-                    # Prefer the map sheet whose PlaceName matches this node's
-                    # place; a territory may span several sheets.
+                    # Prefer the map sheet whose PlaceName matches this node's place; a territory
+                    # may span several sheets. Falling back to "first candidate"
+                    # is wrong: many territories list a `default/00` placeholder
+                    # sheet, so an unmatched place used to pin large parts of the
+                    # dataset to `default/00` and its offsets. Only accept a
+                    # fallback when the territory really has one usable sheet,
+                    # and never pick `default/00`.
                     candidates = maps_by_territory.get(territory_id, [])
+                    usable = [
+                        c for c in candidates
+                        if c["map_id"] and not str(c["map_id"]).startswith("default/")
+                    ]
                     map_id = ""
-                    for cand in candidates:
+                    for cand in usable:
                         if cand["place_name_id"] and cand["place_name_id"] == place_id:
-                            map_id = cand["map_id"]
+                            map_id = str(cand["map_id"])
                             break
-                    if not map_id and len(candidates) == 1:
-                        map_id = str(candidates[0]["map_id"])
-                    if not map_id and candidates:
-                        map_id = str(candidates[0]["map_id"])
+                    if not map_id and usable:
+                        # No place matched. If every real sheet agrees on the
+                        # offset and SizeFactor the choice does not matter, so any
+                        # of them yields the same grid coordinate (e.g. the two
+                        # w1f4 sheets, both offset 0 / SizeFactor 100).
+                        sigs = {
+                            (map_offsets.get(str(c["map_id"]), (0.0, 0.0)),
+                             map_size_factors.get(str(c["map_id"]), 100.0))
+                            for c in usable
+                        }
+                        if len(sigs) == 1:
+                            map_id = str(usable[0]["map_id"])
                     meta = gpb_meta.get(gpb, {})
                     exported_index = exported_idx
                     coords_source = "ExportedGatheringPoint" if coord else None
                     size_factor = map_size_factors.get(map_id, 100.0)
                     off_x, off_y = map_offsets.get(map_id, (0.0, 0.0))
-                    map_x = to_map_grid(x, off_x, size_factor) if x is not None else None
-                    map_y = to_map_grid(y, off_y, size_factor) if y is not None else None
+                    # Without a resolved map sheet the offset and SizeFactor are
+                    # unknown, and different sheets use different ones, so the raw
+                    # value cannot be placed on the 1..41 grid. Keep the raw
+                    # coordinates but leave the grid values unset.
+                    if map_id:
+                        map_x = to_map_grid(x, off_x, size_factor) if x is not None else None
+                        map_y = to_map_grid(y, off_y, size_factor) if y is not None else None
+                    else:
+                        map_x = map_y = None
                     nodes.append({
                         "gpb_id": gpb,
                         "gathering_point_id": gp_id,

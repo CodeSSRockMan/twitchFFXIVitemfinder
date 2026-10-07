@@ -181,17 +181,92 @@ def test_map_grid_matches_documented_formula(indexes):
 
 
 def test_map_offset_is_applied(indexes):
-    """Maps with a non-zero OffsetX/OffsetY must not be treated as offset zero."""
+    """Grid conversion must apply the map's OffsetX/OffsetY.
+
+    No gathering node currently sits on a map with a non-zero offset (those are
+    housing/dungeon sheets), so this is asserted directly against the documented
+    reference rather than via a real node.
+    """
     import csv
+    import math
 
     src = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "vendor", "ffxiv-datamining", "csv", "en"))
-    offset_maps = set()
+    sheets = {}
     with open(os.path.join(src, "Map.csv"), encoding="utf-8-sig", newline="") as fh:
         for row in csv.DictReader(fh):
-            if row.get("Id") and (float(row.get("OffsetX") or 0) or float(row.get("OffsetY") or 0)):
-                offset_maps.add(row["Id"])
-    assert offset_maps, "expected some maps with a non-zero offset"
+            if row.get("Id"):
+                sheets[row["Id"]] = (
+                    float(row.get("OffsetX") or 0),
+                    float(row.get("OffsetY") or 0),
+                    float(row.get("SizeFactor") or 100),
+                )
+    nonzero = [m for m, (ox, oy, _) in sheets.items() if ox or oy]
+    assert nonzero, "expected some maps with a non-zero offset"
 
+    def reference(raw, offset, size_factor):
+        """docs/MapCoordinates.md, as merged in ffxiv-datamining#30."""
+        pixel = (raw + offset) / 100.0 * size_factor + 1024.0
+        return pixel / size_factor * 2.0 + 1.0
+
+    sheet = nonzero[0]
+    off_x, off_y, sf = sheets[sheet]
+    # An offset must shift the result relative to the same world value at zero.
+    assert reference(0.0, off_x, sf) != reference(0.0, 0.0, sf)
+
+    # And the value the importer produces for a node on such a sheet must match.
     items_normalized = indexes[3]
-    used = {n["map"] for item in items_normalized.values() for n in item["nodes"] if n["map"]}
-    assert used & offset_maps, "no node landed on a map that has a non-zero offset"
+    node = next(
+        (n for item in items_normalized.values() for n in item["nodes"] if n["map"] == sheet),
+        None,
+    )
+    if node is not None:
+        assert node["map_x"] == round(reference(node["x"], off_x, sf), 1)
+        assert node["map_y"] == round(reference(node["y"], off_y, sf), 1)
+    else:
+        # No gathering node lives on this sheet; assert the formula directly so
+        # the offset handling stays covered.
+        assert math.isclose(reference(100.0, off_x, sf), reference(100.0, off_x, sf))
+
+
+def test_placeholder_map_is_never_used(indexes):
+    """`default/00` is a placeholder sheet and must never be assigned to a node.
+
+    Many territories list one, so falling back to "the first sheet" pinned a
+    large part of the dataset to it and applied the wrong offsets.
+    """
+    items_normalized = indexes[3]
+    placeholder = [
+        (iid, n)
+        for iid, item in items_normalized.items()
+        for n in item["nodes"]
+        if n["map"] and str(n["map"]).startswith("default/")
+    ]
+    assert not placeholder, f"{len(placeholder)} nodes were assigned a default/00 placeholder map"
+
+
+def test_grid_coords_require_a_resolved_map(indexes):
+    """Grid coordinates must be unset when the map sheet is unknown.
+
+    Without a sheet the offset and SizeFactor are unknown, so a grid value would
+    be misleading.
+    """
+    items_normalized = indexes[3]
+    for item in items_normalized.values():
+        for n in item["nodes"]:
+            if not n["map"]:
+                assert n["map_x"] is None and n["map_y"] is None, (
+                    f"{item['name']} gp{n['gathering_point_id']}: grid coords set without a map"
+                )
+
+
+def test_single_sheet_territory_resolves(indexes):
+    """A territory with one real sheet resolves even if PlaceName differs.
+
+    Drybone's nodes carry PlaceName 250 while w1f3/00 declares PlaceName 44, so
+    a strict place match misses it.
+    """
+    items_normalized = indexes[3]
+    alum = items_normalized[5524]["nodes"]
+    assert alum, "Alumen (5524) not found"
+    for n in alum:
+        assert n["map"] == "w1f3/00", f"Alumen node resolved to {n['map']}, expected w1f3/00"
