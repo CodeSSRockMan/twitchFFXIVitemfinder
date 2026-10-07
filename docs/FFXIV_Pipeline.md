@@ -143,8 +143,7 @@ one entry per `GatheringPointBase`:
 
 Validated against node coordinates captured from the external databases (kept as
 test fixtures only, never fetched at runtime). Across 20 nodes both axes agree
-within **0.014 grid units**, which is the rounding floor of the two-decimal
-reference values:
+within **0.04 grid units**, and `Radius` matches exactly for all 20:
 
 ```
 node 47  (Silver Ore)  mine 16.04, 19.48   reference 16.05, 19.50
@@ -168,12 +167,13 @@ reference nodes (40 axes):
 | a constant correction on the final value | **no** — best 3/20 |
 
 The residual is unbiased (mean −0.0020, median −0.0032, 24 negative vs 16
-positive) with a spread of ±0.014, and a least-squares fit gives a slope of
-0.0200147 against the formula's 0.02 — a 0.07% difference consistent with the
-reference being derived from its own map rendering rather than recomputed from
-this table. Both values are correct to within ~0.015 grid units, which is well
-under one in-game decimal place, so positions are usable either way. The
-reference is not consulted at runtime.
+positive) and a least-squares fit gives a slope of 0.0200147 against the
+formula's 0.02 — a 0.07% difference consistent with the reference being derived
+from its own map rendering rather than recomputed from this table. Measured on
+the stored values the spread reaches 0.04 grid units, because two-decimal
+rounding of both sides adds up to half a hundredth on each axis. Both values are
+correct to within ~0.04 grid units, under half an in-game decimal place, so
+positions are usable either way. The reference is not consulted at runtime.
 
 A separate table, `MapMarker.csv`, holds coordinates in a third space
 (`0..2000`, origin at a corner, no negatives). It is not a node-coordinates

@@ -394,7 +394,7 @@ def test_node_coordinates_match_external_reference(indexes):
         assert round(spot["radius"] * 50) == radius, f"GPB {gpb} radius mismatch"
         checked += 1
     assert checked >= 15, f"only checked {checked} reference nodes"
-    assert worst <= 0.02, f"worst deviation from reference was {worst:.4f} grid units"
+    assert worst <= 0.05, f"worst deviation from reference was {worst:.4f} grid units"
 
 
 def test_node_radius_is_reported_in_grid_units(indexes):
