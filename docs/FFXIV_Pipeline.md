@@ -63,10 +63,29 @@ Coordinate resolution
 from, so the exported index is always `GatheringPoint."#" - 30000`. Verified
 against the 7.25 CSVs: this single rule accounts for every exported index.
 
-Gathering points that were never exported have no entry in
-`ExportedGatheringPoint.csv`; their `x`/`y` are `null` and the summary reports
-`has_coords = false`. Only a subset of gathering points is exported upstream
-(1077 of 5857 rows in 7.25), so most items are located but not coordinate-pinned.
+Coordinates come in two spaces, and only one of them is usable in game.
+
+`ExportedGatheringPoint.X/Y` are **map-space units** on a 2048-unit map whose
+origin is at the centre, so they span roughly `-1024..1024` (measured across all
+1077 exported rows: X `-872.9..970.3`, Y `-948.4..962.9`). The sign is meaningful
+there — a negative X is simply the western half of the zone — but these values
+must never be shown as a coordinate.
+
+The in-game map grid is **1..41** across the same map. Each node therefore also
+carries `map_x` / `map_y`, converted from the raw values using the map's
+`SizeFactor`. Across all 2340 positioned nodes the result is `4.0..40.0` on both
+axes with **zero negatives**, which is what the game shows.
+
+`coords_source` is `ExportedGatheringPoint` when coordinates exist, and is
+`null` otherwise. Gathering points that were never exported have `x`/`y` and
+`map_x`/`map_y` all `null`, and the summary reports `has_coords = false`. Only a
+subset of gathering points is exported upstream (1077 of 5857 rows in 7.25), so
+most items are located but not coordinate-pinned.
+
+A separate table, `MapMarker.csv`, holds coordinates in a third space
+(`0..2000`, origin at a corner, no negatives). It is not a node-coordinates
+source: markers carry `PlaceNameSubtext` rather than a gathering-point id, so a
+marker cannot be tied back to a specific node.
 
 Zone, node and job
 

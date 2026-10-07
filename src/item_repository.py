@@ -69,7 +69,9 @@ def get_item(item_id: int, path: Optional[str] = None) -> Optional[Dict[str, Any
 def summarize_item(item_id: int, item: Dict[str, Any]) -> Dict[str, Any]:
     """Return a compact record for an item, counting its gathering nodes."""
     nodes = item.get("nodes") or []
-    has_coords = any(n.get("x") is not None and n.get("y") is not None for n in nodes)
+    has_coords = any(
+        n.get("map_x") is not None and n.get("map_y") is not None for n in nodes
+    )
     return {
         "id": item_id,
         "name": item.get("name", ""),
@@ -132,16 +134,22 @@ def find_items_by_name(name: str, path: Optional[str] = None) -> List[Dict[str, 
 
 
 def format_node(node: Dict[str, Any]) -> str:
-    """Render one gathering node as a single human-readable line."""
+    """Render one gathering node as a single human-readable line.
+
+    Coordinates are shown on the in-game 1..41 map grid. The raw
+    `ExportedGatheringPoint` values are map-space units on a 2048-unit map centred
+    on the origin, so they are negative for the western/southern half of a zone and
+    are not usable in game.
+    """
     place = node.get("place_name") or node.get("territory_name") or "unknown area"
     job = node.get("gathering_job")
     level = node.get("gathering_level")
     if job and level:
         place = f"{place} (Lv. {level} {job.lower()} node)"
-    x, y = node.get("x"), node.get("y")
-    if x is None or y is None:
-        return f"{place} - coordinates not exported"
-    return f"{place} - X: {x}, Y: {y}"
+    map_x, map_y = node.get("map_x"), node.get("map_y")
+    if map_x is None or map_y is None:
+        return f"{place} - coordinates not available"
+    return f"{place} - X: {map_x}, Y: {map_y}"
 
 
 def format_chat_reply(item_name: str, item: Dict[str, Any]) -> str:
@@ -150,7 +158,7 @@ def format_chat_reply(item_name: str, item: Dict[str, Any]) -> str:
     if not nodes:
         return f"[Gather] {item_name} can be gathered, but no gathering data was found."
 
-    located = [n for n in nodes if n.get("x") is not None and n.get("y") is not None]
+    located = [n for n in nodes if n.get("map_x") is not None and n.get("map_y") is not None]
     if not located:
         return (
             f"[Gather] {item_name} was found in {len(nodes)} spot(s), "

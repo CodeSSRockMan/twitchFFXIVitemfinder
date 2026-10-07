@@ -198,6 +198,39 @@ def build_indexes(src_dir: str):
         # coordinates. Points absent from ExportedGatheringPoint simply have no coords.
         EXPORTED_INDEX_OFFSET = 30000
 
+    # 8.1) Map-space (grid) coordinates.
+    #
+    # `ExportedGatheringPoint.X/Y` are *map-space* units on a 2048-unit map whose
+    # origin sits at the centre, so the values run roughly -1024..1024 and the sign
+    # is meaningful. Verified across all 1077 exported rows (X: -872.9..970.3,
+    # Y: -948.4..962.9).
+    #
+    # The in-game map grid is 1..41 across the same map, with 1 at the far edge and
+    # 21.5 at the centre, which is why raw values must never be shown directly:
+    # a raw X of -611 is a perfectly good position on the west side of the map.
+    # MAP_SPAN_UNITS is the full width in map-space units and MAP_GRID_MIN/MAX are
+    # the grid values that span it.
+    MAP_SPAN_UNITS = 2048.0
+    MAP_GRID_MIN = 1.0
+    MAP_GRID_MAX = 41.0
+
+    def to_map_grid(raw: float, size_factor: float = 100.0) -> float:
+        """Convert a map-space value to the 1..41 in-game map grid."""
+        grid_span = MAP_GRID_MAX - MAP_GRID_MIN
+        scale = grid_span / MAP_SPAN_UNITS * (100.0 / max(size_factor, 1.0))
+        return round(MAP_GRID_MIN + (raw + MAP_SPAN_UNITS / 2.0) * scale, 2)
+
+    # 8.2) Per-map SizeFactor for the grids above.
+    map_size_factors: Dict[str, float] = {}
+    for row in _read_csv(map_path):
+        mid = row.get("Id", "") or ""
+        try:
+            sf = float(row.get("SizeFactor", "100") or 100)
+        except Exception:
+            sf = 100.0
+        if mid:
+            map_size_factors[mid] = sf
+
     # 9) Build per-item normalized JSON
     items_normalized: Dict[int, Dict] = {}
     for item_id, gathering_ids in item_to_gathering_item.items():
@@ -229,6 +262,9 @@ def build_indexes(src_dir: str):
                     meta = gpb_meta.get(gpb, {})
                     exported_index = exported_idx
                     coords_source = "ExportedGatheringPoint" if coord else None
+                    size_factor = map_size_factors.get(map_id, 100.0)
+                    map_x = to_map_grid(x, size_factor) if x is not None else None
+                    map_y = to_map_grid(y, size_factor) if y is not None else None
                     nodes.append({
                         "gpb_id": gpb,
                         "gathering_point_id": gp_id,
@@ -244,6 +280,8 @@ def build_indexes(src_dir: str):
                         "map": map_id,
                         "x": x,
                         "y": y,
+                        "map_x": map_x,
+                        "map_y": map_y,
                         "coords_source": coords_source,
                     })
         items_normalized[item_id] = {"name": item_names.get(item_id, ""), "nodes": nodes}

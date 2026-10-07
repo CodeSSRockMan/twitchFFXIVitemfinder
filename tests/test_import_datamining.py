@@ -103,3 +103,38 @@ def test_zone_and_node_are_separate_fields(indexes):
     walnut = items_normalized[44018]["nodes"][0]
     assert walnut["place_name"] == "East Yyasulani"
     assert walnut["map"] == "x6f2/00"
+
+
+def test_map_grid_coordinates_are_positive_and_in_range(indexes):
+    """In-game map coordinates are on a 1..41 grid and are never negative.
+
+    Raw ExportedGatheringPoint values are map-space units on a 2048-unit map
+    centred on the origin (roughly -1024..1024), so the sign is meaningful there
+    but must never surface as a usable coordinate.
+    """
+    items_normalized = indexes[3]
+    positioned = [
+        n
+        for item in items_normalized.values()
+        for n in item["nodes"]
+        if n.get("map_x") is not None and n.get("map_y") is not None
+    ]
+    assert positioned, "no nodes resolved map-grid coordinates"
+
+    for n in positioned:
+        assert 1.0 <= n["map_x"] <= 41.0, f"map_x out of range: {n['map_x']}"
+        assert 1.0 <= n["map_y"] <= 41.0, f"map_y out of range: {n['map_y']}"
+        assert n["map_x"] >= 0, "map_x must never be negative"
+        assert n["map_y"] >= 0, "map_y must never be negative"
+
+    # Raw values really are signed; that is expected and must not leak out.
+    raw_signed = [n for n in positioned if n["x"] is not None and n["x"] < 0]
+    assert raw_signed, "expected some negative raw map-space values"
+
+
+def test_map_grid_is_monotonic_with_raw(indexes):
+    """A larger raw value must map to a larger grid value."""
+    items_normalized = indexes[3]
+    laurel = items_normalized[4839]["nodes"]
+    ordered = sorted((n for n in laurel if n["map_x"] is not None), key=lambda n: n["x"])
+    assert [n["map_x"] for n in ordered] == sorted(n["map_x"] for n in ordered)
