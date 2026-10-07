@@ -100,8 +100,26 @@ cannot silently drift.
 `coords_source` is `ExportedGatheringPoint` when coordinates exist, and is
 `null` otherwise. Gathering points that were never exported have `x`/`y` and
 `map_x`/`map_y` all `null`, and the summary reports `has_coords = false`. Only a
-subset of gathering points is exported upstream (1077 of 5857 rows in 7.25), so
-most items are located but not coordinate-pinned.
+subset of gathering points is exported upstream (1077 of 5857 rows in 7.25, 18%),
+so most items are located but not coordinate-pinned. Coverage varies sharply by
+zone: Eastern Thanalan (territory 145) has 26 of 32 exported (81%), while some
+areas have none. Each node also carries `radius`, the node's width in grid units
+(from `ExportedGatheringPoint.Radius`, scaled the same way as the coordinates),
+which says how far a player may be from the centre and still be at that node.
+
+External id schemes
+
+The reference databases use upstream ids directly, so an id from one of them can
+be looked up here unchanged:
+
+| Source | Id | Maps to |
+|--------|-----|----------|
+| garlandtools `#item/5524` | item id | `items_normalized[5524]` (Alumen) |
+| garlandtools `#node/160` | `GatheringPointBase` id | GPB 160 -> points 30437-30440 |
+| garlandtools `#node/185` | `GatheringPointBase` id | GPB 185 -> points 30520-30523 |
+
+Note that a node id identifies a *base*, which may cover several gathering
+points at different coordinates, so it does not pin down a single map position.
 
 A separate table, `MapMarker.csv`, holds coordinates in a third space
 (`0..2000`, origin at a corner, no negatives). It is not a node-coordinates
