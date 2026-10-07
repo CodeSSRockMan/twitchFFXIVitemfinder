@@ -118,8 +118,36 @@ be looked up here unchanged:
 | garlandtools `#node/160` | `GatheringPointBase` id | GPB 160 -> points 30437-30440 |
 | garlandtools `#node/185` | `GatheringPointBase` id | GPB 185 -> points 30520-30523 |
 
-Note that a node id identifies a *base*, which may cover several gathering
-points at different coordinates, so it does not pin down a single map position.
+Node JSON can be fetched directly from
+`https://www.garlandtools.org/db/doc/node/<LANG>/2/<gpb_id>.json` (version 2).
+
+Node coordinates are not gathering-point coordinates
+
+A `GatheringPointBase` is a *node*: one mining or harvesting spot that may map to
+several gathering points. garlandtools publishes a single `coords` pair and a
+`radius` for the node, and that pair is a representative point for the node as a
+whole, not the position of any one gathering point.
+
+Two Drybone nodes show why the distinction matters:
+
+| node | level | garlandtools coords |
+|------|-------|---------------------|
+| 160 (Alumen) | 20 | 18.08, 20.54 |
+| 185 (Raw Amber) | 45 | 12.65, 19.10 |
+
+They sit 5.4 units apart and, in this dataset, have gathering points only 1.2
+units apart, so both descriptions refer to the same neighbourhood. Neither
+node-level coordinate equals any single gathering point:
+
+| node | garlandtools | nearest gathering point | distance |
+|------|--------------|-------------------------|----------|
+| 47 (Silver Ore) | 16.05, 19.50 | 16.13, 20.43 | 0.94 |
+| 160 (Alumen) | 18.08, 20.54 | 14.69, 24.37 | 5.11 |
+| 185 | 12.65, 19.10 | 27.15, 16.29 | 14.77 |
+
+So `map_x`/`map_y` here are per-gathering-point positions and are not expected to
+match a node-level `coords` value. When comparing against an external database,
+compare like with like: node-level to node-level, or point to point.
 
 A separate table, `MapMarker.csv`, holds coordinates in a third space
 (`0..2000`, origin at a corner, no negatives). It is not a node-coordinates

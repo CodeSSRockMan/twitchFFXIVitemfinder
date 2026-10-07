@@ -323,7 +323,14 @@ def build_indexes(src_dir: str):
                         ),
                         "coords_source": coords_source,
                     })
-        items_normalized[item_id] = {"name": item_names.get(item_id, ""), "nodes": nodes}
+        items_normalized[item_id] = {
+            "name": item_names.get(item_id, ""),
+            "nodes": nodes,
+            # Node-level view: one representative position per GatheringPointBase.
+            # External databases publish a single coords/radius per node rather
+            # than per gathering point, so expose the same shape here.
+            "node_spots": _node_spots(nodes),
+        }
 
     # Convert defaultdicts to regular dicts for return
     return (
@@ -332,6 +339,55 @@ def build_indexes(src_dir: str):
         {k: v for k, v in gpb_to_points.items()},
         items_normalized,
     )
+
+
+def _node_spots(nodes: List[Dict]) -> List[Dict]:
+    """Group gathering points by GatheringPointBase (node).
+
+    External databases publish one coords/radius per node, but the gathering
+    points under one node can sit many grid units apart, so averaging them would
+    invent a position that is not on the map. Each spot therefore lists the real
+    positions, and `map_x`/`map_y` are only filled in when the node's points
+    coincide within half a grid unit, which is when a single point is meaningful.
+    """
+    grouped: Dict[int, List[Dict]] = defaultdict(list)
+    for n in nodes:
+        grouped[n.get("gpb_id")].append(n)
+
+    spots: List[Dict] = []
+    for gpb_id, group in sorted(grouped.items()):
+        positioned = [n for n in group if n.get("map_x") is not None]
+        radii = [n["radius"] for n in group if n.get("radius") is not None]
+
+        single_x = single_y = None
+        if positioned:
+            xs = {round(n["map_x"], 1) for n in positioned}
+            ys = {round(n["map_y"], 1) for n in positioned}
+            if len(xs) == 1 and len(ys) == 1:
+                single_x = positioned[0]["map_x"]
+                single_y = positioned[0]["map_y"]
+
+        spots.append({
+            "gpb_id": gpb_id,
+            "place_name": group[0].get("place_name", ""),
+            "map": group[0].get("map", ""),
+            "gathering_job": group[0].get("gathering_job"),
+            "gathering_level": group[0].get("gathering_level"),
+            "map_x": single_x,
+            "map_y": single_y,
+            "radius": round(max(radii), 2) if radii else None,
+            "point_count": len(group),
+            "positions": [
+                {
+                    "gathering_point_id": n["gathering_point_id"],
+                    "map_x": n["map_x"],
+                    "map_y": n["map_y"],
+                    "radius": n.get("radius"),
+                }
+                for n in group
+            ],
+        })
+    return spots
 
 
 def main(argv: List[str] | None = None) -> int:

@@ -272,6 +272,43 @@ def test_single_sheet_territory_resolves(indexes):
         assert n["map"] == "w1f3/00", f"Alumen node resolved to {n['map']}, expected w1f3/00"
 
 
+def test_node_spots_group_by_gathering_point_base(indexes):
+    """`node_spots` must expose node-level records matching external databases.
+
+    garlandtools publishes one record per GatheringPointBase with a single
+    coords/radius, so the dataset needs the same shape. The gathering points
+    under one node can be many grid units apart, so no centroid is invented:
+    `map_x`/`map_y` stay null unless the points coincide.
+    """
+    items_normalized = indexes[3]
+
+    silver = items_normalized[5113]["node_spots"]
+    assert silver, "Silver Ore has no node_spots"
+    spot = next(s for s in silver if s["gpb_id"] == 47)
+    assert spot["gathering_job"] == "Mining"
+    assert spot["gathering_level"] == 25
+    assert spot["point_count"] == 4
+    # Points under GPB 47 are far apart, so a single coordinate must not be claimed.
+    assert spot["map_x"] is None and spot["map_y"] is None
+    assert len(spot["positions"]) == 4
+    assert all(p["map_x"] is None or 1 <= p["map_x"] <= 41 for p in spot["positions"])
+
+    # Alumen (Garlandtools node 160 == GPB 160)
+    alum = next(s for s in items_normalized[5524]["node_spots"] if s["gpb_id"] == 160)
+    assert alum["gathering_level"] == 20
+    assert alum["point_count"] == 4
+    assert alum["map"] == "w1f3/00"
+
+    # Every spot must reference a gpb_id and keep positions within the grid.
+    for item in items_normalized.values():
+        for s in item.get("node_spots", []):
+            assert s["gpb_id"]
+            for p in s["positions"]:
+                for k in ("map_x", "map_y"):
+                    v = p[k]
+                    assert v is None or (1.0 <= v <= 41.0), f"grid coord out of range: {v}"
+
+
 def test_node_radius_is_reported_in_grid_units(indexes):
     """`ExportedGatheringPoint.Radius` is map-space, so it is scaled like coords.
 
