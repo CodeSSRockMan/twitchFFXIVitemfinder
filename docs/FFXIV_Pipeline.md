@@ -105,7 +105,62 @@ subset of nodes is exported upstream (1077 of 1425 `GatheringPointBase` rows in
 zone: Eastern Thanalan has 26 of 32 exported (81%) against 18% overall, so "no
 coordinates" is far more likely in some areas than others.
 
-External id schemes
+Source types and the factory
+
+Each importer owns one family of CSVs and produces one cache. `src/source_factory.py`
+joins them and decides which source answers for an item, applying a fixed
+priority so an item always resolves the same way:
+
+| Priority | Source | Cache | Produced by |
+|---|---|---|---|
+| 1 | `gather` | `data/normalized/items_normalized.json` | `scripts/import_datamining.py` |
+| 2 | `craft` | `data/recipes/recipes.json` | `scripts/import_recipes.py` |
+| 3 | `unknown` | — | no source in the data |
+
+Gatherable outranks craft because a located node is a direct answer, while a
+recipe only says what to make and still leaves its materials to be found. In the
+7.25 data the two sets are disjoint: 1954 gatherable items and 11341 craftable
+items with no overlap, so the priority rarely has to break a tie.
+
+```bash
+python scripts/import_datamining.py   # gatherables
+python scripts/import_recipes.py      # crafting
+```
+
+Recipes are recursive
+
+68% of recipes (9424 of 13892) use at least one material that is itself
+craftable, so a flat material list is not enough for them. Each recipe records
+`has_recursive_material`, and each material is classified:
+
+| `source` | Meaning |
+|---|---|
+| `gather` | a gathering item; resolve through the gatherable cache |
+| `craft` | has its own recipe; the caller must recurse |
+| `other` | no route in this data |
+
+The tree is **not** stored. Depth is bounded — max 3 in 7.25 — so it is resolved
+on demand and terminates at gatherable materials:
+
+```
+Bronze Hatchet  [CRAFT type 1, recursive=True]
+  - Bronze Ingot x1 (craft)
+    Bronze Ingot  [CRAFT type 1, recursive=False]
+      - Copper Ore x2 (gather)
+      - Tin Ore x1 (gather)
+  - Fire Shard x1 (gather)
+```
+
+Vendors are not a source yet
+
+Scrip and other special-currency exchanges are absent from the data: Cloud
+Mythril Ore (item 17570) appears in neither `GilShopItem` (16157 rows) nor
+`CollectablesShopItem` (1617 rows), and scrip exchanges are not exported.
+`GilShopItem` also carries no NPC column, so even ordinary vendor purchases
+cannot be attributed to a shop. Instance rewards are likewise unavailable: no
+table links an item to an instance, and `InstanceContentRewardItem` is only
+`{#, Unknown0, Unknown1}`. These would need another source beyond the
+submodule.
 
 The reference databases use upstream ids directly, so an id from one of them can
 be looked up here unchanged:
