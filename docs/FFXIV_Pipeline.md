@@ -152,6 +152,29 @@ node 160 (Alumen)      mine 18.07, 20.52   reference 18.08, 20.54
 node 185               mine 12.64, 19.09   reference 12.65, 19.10
 ```
 
+Where the residual comes from
+
+The residual is **not** one more arithmetic step, and the approximations are
+applied *after* the conversion, not before. Checks run against the 20 captured
+reference nodes (40 axes):
+
+| Hypothesis | Result |
+|------------|--------|
+| residual is only the reference's 2dp rounding | **no** — only 15 of 40 axes fall within ±0.005, the bound rounding would impose |
+| a constant added to the raw value first | **no** — no constant in ±2 raw units reproduces the set |
+| snapping raw to 0.5 or 1.0 units | **no** — 0/20 |
+| rounding or flooring the intermediate pixel | **no** — 0/20 |
+| a different magic number (40.96 … 41.02) or centre constant | **no** — best fit 5/20, no clean winner |
+| a constant correction on the final value | **no** — best 3/20 |
+
+The residual is unbiased (mean −0.0020, median −0.0032, 24 negative vs 16
+positive) with a spread of ±0.014, and a least-squares fit gives a slope of
+0.0200147 against the formula's 0.02 — a 0.07% difference consistent with the
+reference being derived from its own map rendering rather than recomputed from
+this table. Both values are correct to within ~0.015 grid units, which is well
+under one in-game decimal place, so positions are usable either way. The
+reference is not consulted at runtime.
+
 A separate table, `MapMarker.csv`, holds coordinates in a third space
 (`0..2000`, origin at a corner, no negatives). It is not a node-coordinates
 source: markers carry `PlaceNameSubtext` rather than a gathering-point id, so a

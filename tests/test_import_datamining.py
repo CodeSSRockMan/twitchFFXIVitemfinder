@@ -376,21 +376,25 @@ def test_node_coordinates_match_external_reference(indexes):
             spots.setdefault(s["gpb_id"], s)
 
     checked = 0
+    worst = 0.0
     for gpb, (ex, ey, radius) in REFERENCE_NODES.items():
         spot = spots.get(gpb)
         assert spot is not None, f"GPB {gpb} missing from dataset"
-        # The reference stores two decimals, so a small rounding difference is
-        # expected; every sampled axis agrees to within 0.014 grid units.
+        # The reference is derived from its own map rendering rather than
+        # recomputed from this table, so it agrees to within ~0.015 grid units
+        # rather than exactly. See docs/FFXIV_Pipeline.md.
+        worst = max(worst, abs(spot["map_x"] - ex), abs(spot["map_y"] - ey))
         assert abs(spot["map_x"] - ex) <= 0.05, (
             f"GPB {gpb} x: got {spot['map_x']}, expected ~{ex}"
         )
         assert abs(spot["map_y"] - ey) <= 0.05, (
             f"GPB {gpb} y: got {spot['map_y']}, expected ~{ey}"
         )
-        # Radius is stored in map-space units upstream.
+        # Radius is stored in map-space units upstream and matches exactly.
         assert round(spot["radius"] * 50) == radius, f"GPB {gpb} radius mismatch"
         checked += 1
     assert checked >= 15, f"only checked {checked} reference nodes"
+    assert worst <= 0.02, f"worst deviation from reference was {worst:.4f} grid units"
 
 
 def test_node_radius_is_reported_in_grid_units(indexes):
