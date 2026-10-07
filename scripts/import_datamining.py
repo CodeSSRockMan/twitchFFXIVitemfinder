@@ -132,8 +132,9 @@ def build_indexes(src_dir: str):
             "place_name": place,
         })
 
-    # 4) ExportedGatheringPoint -> coords
+    # 4) ExportedGatheringPoint -> coords and node radius
     exported_coords: Dict[int, Tuple[float, float]] = {}
+    exported_radius: Dict[int, float] = {}
     for row in _read_csv(exp_gp_path):
         idx = _safe_int(row.get("#", "0"))
         if not idx:
@@ -145,6 +146,10 @@ def build_indexes(src_dir: str):
             x = 0.0
             y = 0.0
         exported_coords[idx] = (x, y)
+        try:
+            exported_radius[idx] = float(row.get("Radius", "0") or 0)
+        except Exception:
+            exported_radius[idx] = 0.0
 
     # 5) Item names
     item_names: Dict[int, str] = {}
@@ -311,6 +316,11 @@ def build_indexes(src_dir: str):
                         "y": y,
                         "map_x": map_x,
                         "map_y": map_y,
+                        "radius": (
+                            exported_radius.get(exported_idx, 0.0) / 50.0
+                            if map_id and exported_idx in exported_radius
+                            else None
+                        ),
                         "coords_source": coords_source,
                     })
         items_normalized[item_id] = {"name": item_names.get(item_id, ""), "nodes": nodes}

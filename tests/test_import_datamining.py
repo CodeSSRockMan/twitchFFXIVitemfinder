@@ -270,3 +270,31 @@ def test_single_sheet_territory_resolves(indexes):
     assert alum, "Alumen (5524) not found"
     for n in alum:
         assert n["map"] == "w1f3/00", f"Alumen node resolved to {n['map']}, expected w1f3/00"
+
+
+def test_node_radius_is_reported_in_grid_units(indexes):
+    """`ExportedGatheringPoint.Radius` is map-space, so it is scaled like coords.
+
+    Expressed in grid units it tells a player how wide the node marker is, which
+    is how the external databases present it.
+    """
+    items_normalized = indexes[3]
+    positioned = [
+        n
+        for item in items_normalized.values()
+        for n in item["nodes"]
+        if n.get("map_x") is not None
+    ]
+    assert positioned
+
+    with_radius = [n for n in positioned if n.get("radius") is not None]
+    assert with_radius, "no node reported a radius"
+
+    for n in with_radius:
+        assert n["radius"] >= 0, "radius must not be negative"
+        # Radius is in map-space units; a sane node stays well inside the 1..41 grid.
+        assert n["radius"] < 20.0, f"implausible radius {n['radius']}"
+
+    # Alumen's node (Garlandtools node 160 == GPB 160) should carry one.
+    alum = items_normalized[5524]["nodes"][0]
+    assert alum["radius"] is not None and alum["radius"] > 0
